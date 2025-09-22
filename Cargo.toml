@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.45", features = ["derive"] }
 futures-core = "0.3.31"
-handlebars = "6.3.2"
 reqwest = { version = "0.12.23", features = ["json"] }
 rmcp = { version = "0.5.0", features = [
     "server",
@@ -18,9 +17,10 @@ rmcp = { version = "0.5.0", features = [
 ] }
 schemars = "1.0.4"
 serde = "1.0.219"
+serde_json = "1.0.145"
 serde_valid = "1.0.5"
 serde_yaml = "0.9.34"
-tera = "1.20.0"
+tinytemplate = "1.2.1"
 tokio = { version = "1.47.1", features = [
     "macros",
     "rt",
@@ -28,4 +28,4 @@ tokio = { version = "1.47.1", features = [
     "io-std",
     "signal",
 ] }
-tracing = "0.1.41"
+urlencoding = "2.1.3"
