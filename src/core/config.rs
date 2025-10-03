@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use rmcp::model::JsonObject;
+use rmcp::model::{JsonObject, ToolAnnotations};
 
 #[derive(serde::Deserialize, Debug, Clone)]
 pub enum ToolType {
@@ -18,9 +18,10 @@ pub enum HttpMethod {
 pub struct HttpMetadata {
     pub url: String,
     pub method: HttpMethod,
+    pub body_template: Option<String>,
     pub headers: Option<HashMap<String, String>>,
     pub input_schema: JsonObject,
-    pub output_schema: Option<JsonObject>
+    pub output_schema: Option<JsonObject>,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -28,5 +29,12 @@ pub struct ToolData {
     pub name: String,
     pub description: String,
     pub tool_type: ToolType,
-    pub http_metadata: Option<HttpMetadata>
+    pub http_metadata: Option<HttpMetadata>,
+    pub tool_annotations: Option<ToolAnnotations>,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct DynamicMCPConfig {
+    pub tools: Vec<ToolData>,
+    pub instruction: String,
 }
