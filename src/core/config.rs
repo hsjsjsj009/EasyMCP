@@ -1,9 +1,9 @@
+use rmcp::model::{Implementation, JsonObject, ServerCapabilities, ToolAnnotations};
 use std::collections::HashMap;
-use rmcp::model::{JsonObject, ToolAnnotations};
 
 #[derive(serde::Deserialize, Debug, Clone)]
 pub enum ToolType {
-    HTTP
+    HTTP,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -11,7 +11,13 @@ pub enum HttpMethod {
     GET,
     POST,
     PUT,
-    DELETE
+    DELETE,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+pub enum TransportType {
+    STDIO,
+    SSE,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -34,7 +40,35 @@ pub struct ToolData {
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
+pub struct TransportConfig {
+    pub transport_type: TransportType,
+}
+
+impl Default for TransportConfig {
+    fn default() -> Self {
+        TransportConfig {
+            transport_type: TransportType::STDIO,
+        }
+    }
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
 pub struct DynamicMCPConfig {
     pub tools: Vec<ToolData>,
-    pub instruction: String,
+    pub instruction: Option<String>,
+    pub server_info: Option<Implementation>,
+    pub server_capabilities: Option<ServerCapabilities>,
+    pub transport_config: Option<TransportConfig>,
+}
+
+impl DynamicMCPConfig {
+    pub async fn new_from_file(file_path: String) -> Self {
+        let file_bytes = tokio::fs::read(file_path)
+            .await
+            .unwrap_or_else(|err| panic!("Error while reading the config file: {}", err));
+        match serde_yaml::from_str(String::from_utf8(file_bytes).unwrap().as_str()) {
+            Ok(data) => data,
+            Err(err) => panic!("Error while parsing the config file: {}", err),
+        }
+    }
 }
