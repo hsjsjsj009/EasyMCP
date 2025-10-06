@@ -4,16 +4,16 @@ use std::fmt::Write;
 use tinytemplate::TinyTemplate;
 use tinytemplate::error::Error;
 
-pub struct Template {
-    template: TinyTemplate<'static>,
-    templates: HashMap<String, String>,
+pub struct Template<'a> {
+    template: TinyTemplate<'a>,
+    templates: HashMap<&'a str, &'a str>,
 }
 
 // Manually implement Send and Sync for Template
-unsafe impl Send for Template {}
-unsafe impl Sync for Template {}
+unsafe impl<'a> Send for Template<'a> {}
+unsafe impl<'a> Sync for Template<'a> {}
 
-impl Clone for Template {
+impl<'a> Clone for Template<'a> {
     fn clone(&self) -> Self {
         let mut new_template = Template::new();
         // Re-register all templates from the original
@@ -26,7 +26,7 @@ impl Clone for Template {
     }
 }
 
-impl Template {
+impl<'a> Template<'a> {
     fn default_formatter(value: &Value, output: &mut String) -> Result<(), Error> {
         let object_string = serde_json::to_string(value)?;
         let object_string = object_string.trim_end_matches('"').trim_start_matches('"');
@@ -55,15 +55,15 @@ impl Template {
         let name_owned = name.to_string();
         let template_owned = template_str.to_string();
 
+        // Use leaked strings for the TinyTemplate and TemplateMap (this is safe for our use case)
+        let name_leak = Box::leak::<'a>(name_owned.into_boxed_str());
+        let template_leak = Box::leak::<'a>(template_owned.into_boxed_str());
+
         // Store the owned strings
         self.templates
-            .insert(name_owned.clone(), template_owned.clone());
+            .insert(name_leak, template_leak);
 
-        // Use leaked strings for the TinyTemplate (this is safe for our use case)
-        let name_static: &'static str = Box::leak(name_owned.into_boxed_str());
-        let template_static: &'static str = Box::leak(template_owned.into_boxed_str());
-
-        self.template.add_template(name_static, template_static)
+        self.template.add_template(name_leak, template_leak)
     }
 
     pub fn render(&self, name: &str, input: &Value) -> Result<String, Error> {
