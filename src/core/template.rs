@@ -60,8 +60,7 @@ impl<'a> Template<'a> {
         let template_leak = Box::leak::<'a>(template_owned.into_boxed_str());
 
         // Store the owned strings
-        self.templates
-            .insert(name_leak, template_leak);
+        self.templates.insert(name_leak, template_leak);
 
         self.template.add_template(name_leak, template_leak)
     }

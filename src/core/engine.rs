@@ -5,6 +5,7 @@ use futures_core::future::BoxFuture;
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use reqwest::Body;
+use reqwest::header::{CONTENT_TYPE, HeaderValue};
 use rmcp::handler::server::tool::{Parameters, ToolRoute, ToolRouter};
 use rmcp::model::{
     CallToolResult, Content, ErrorCode, Implementation, JsonObject, ServerCapabilities, ServerInfo,
@@ -185,21 +186,46 @@ impl DynamicMCP {
                     )
                 })?;
 
-                let response_status = res.status();
 
-                let res_val = res.json::<Value>().await.map_err(|err| {
+                let response_status = res.status().as_u16();
+
+                let empty_header_value = HeaderValue::from_static("");
+
+                let content_type = res.headers().get(CONTENT_TYPE).unwrap_or(&empty_header_value).to_str().unwrap_or("").to_string();
+
+                let content_length = res.content_length().unwrap_or(0);
+
+                let res_text = res.text().await.map_err(|err| {
                     ErrorData::new(
                         ErrorCode::INTERNAL_ERROR,
-                        format!("Error while reading response: {}", err),
+                        format!("Error while reading content from {}: {}", rendered_url, err),
                         None,
                     )
-                })?;
+                });
 
-                match response_status.as_u16() {
+                if res_text.is_err() && content_length > 0 {
+                    return Err(res_text.err().unwrap());
+                }
+
+                let res_val = res_text.unwrap();
+
+                let res_val = if content_type.contains("application/json") {
+                    serde_json::from_str::<Value>(&res_val).map_err(|err| {
+                        ErrorData::new(
+                            ErrorCode::INTERNAL_ERROR,
+                            format!("Error while parsing json content from {}: {}", rendered_url, err),
+                            None,
+                        )
+                    })?
+                } else {
+                    Value::String(res_val)
+                };
+
+                match response_status {
                     200..299 => (),
                     _ => return Err(ErrorData::new(
                         ErrorCode::INTERNAL_ERROR,
-                        format!("Error while sending a request to {}, got status code : {}, response body : {}", rendered_url, response_status.as_u16(), res_val.to_string()),
+                        format!("Error while sending a request to {}, got status code : {}, response body : {}", rendered_url, response_status, res_val.to_string()),
                         None,
                     ))
                 }
@@ -207,7 +233,7 @@ impl DynamicMCP {
                 let content = Content::json::<Value>(res_val).map_err(|err| {
                     ErrorData::new(
                         ErrorCode::INTERNAL_ERROR,
-                        format!("Error while reading content as json: {}", err),
+                        format!("Error while parsing content as json: {}", err),
                         None,
                     )
                 })?;
