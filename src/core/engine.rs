@@ -15,8 +15,10 @@ use rmcp::serde_json::Value;
 use rmcp::{ErrorData, ServerHandler, tool_handler};
 use serde_json::json;
 use std::collections::HashMap;
+use std::process::Stdio;
 use std::str::FromStr;
 use std::sync::Arc;
+use tokio::io::AsyncWriteExt;
 
 #[derive(Clone)]
 pub struct DynamicMCP {
@@ -27,14 +29,16 @@ pub struct DynamicMCP {
 }
 
 lazy_static! {
-    static ref BODY_ESCAPE_BRACKET_REGEX: Regex =
-        Regex::new(r"(\{\s*input\.\w+\s*})|(\{)").unwrap();
+    static ref ESCAPE_BRACKET_REGEX: Regex =
+        Regex::new(r"(\{\s*input\.\w+\s*})|(\{)").unwrap(); // This regex is used to escape the brackets in the template. For further details, see https://docs.rs/tinytemplate/latest/tinytemplate/syntax/index.html#escaping-curly-braces
 }
 
 impl DynamicMCP {
     const URL_TEMPLATE_NAME: &'static str = "url";
     const BODY_TEMPLATE_NAME: &'static str = "body";
     const INPUT_NAME: &'static str = "input";
+    const COMMAND_TEMPLATE_NAME: &'static str = "command";
+    const STDIN_TEMPLATE_NAME: &'static str = "stdin";
 
     pub fn new(config: DynamicMCPConfig) -> Self {
         Self {
@@ -65,25 +69,29 @@ impl DynamicMCP {
         format!("header_{}", name)
     }
 
-    fn sanitize_http_body_template(body_template: &str) -> String {
+    fn command_args_template_name(idx: usize) -> String {
+        format!("args_{}", idx)
+    }
+
+    fn sanitize_template_text(body_template: &str) -> String {
         // Use a closure with `replace_all` for conditional replacement
-        let modified_string =
-            BODY_ESCAPE_BRACKET_REGEX.replace_all(body_template, |caps: &Captures| {
-                // Check if the second group (the standalone '{') was captured
-                if caps.get(2).is_some() {
-                    // If yes, replace it with '\{'
-                    "\\{".to_string()
-                } else {
-                    // Otherwise, it's a template variable (group 1).
-                    // Return the original matched string to leave it unchanged.
-                    caps[0].to_string()
-                }
-            });
+        let modified_string = ESCAPE_BRACKET_REGEX.replace_all(body_template, |caps: &Captures| {
+            // Check if the second group (the standalone '{') was captured
+            if caps.get(2).is_some() {
+                // If yes, replace it with '\{'
+                "\\{".to_string()
+            } else {
+                // Otherwise, it's a template variable (group 1).
+                // Return the original matched string to leave it unchanged.
+                caps[0].to_string()
+            }
+        });
 
         modified_string.to_string()
     }
 
     fn general_http_method_template(
+        tool_index: usize,
         method: HttpMethod,
         url: String,
         body_template: Option<String>,
@@ -92,16 +100,21 @@ impl DynamicMCP {
         // Initialize template once when the function is called
         let mut template = Template::new();
         template
-            .add_template(Self::URL_TEMPLATE_NAME, &url)
-            .expect("Error registering url template");
+            .add_template(
+                Self::URL_TEMPLATE_NAME,
+                &Self::sanitize_template_text(url.as_str()),
+            )
+            .expect(format!("Error registering url template, tool index {}", tool_index).as_str());
 
         let body_exist = if let Some(ref body_str) = body_template {
             template
                 .add_template(
                     Self::BODY_TEMPLATE_NAME,
-                    &Self::sanitize_http_body_template(body_str),
+                    &Self::sanitize_template_text(body_str),
                 )
-                .expect("Error registering body template");
+                .expect(
+                    format!("Error registering body template, tool index {}", tool_index).as_str(),
+                );
             true
         } else {
             false
@@ -118,12 +131,15 @@ impl DynamicMCP {
         // Register header templates
         for (header_name, template_name) in header_template_names.iter() {
             if let Some(header_value) = header_template.get(header_name) {
-                if let Err(err) = template.add_template(template_name, header_value) {
-                    panic!(
-                        "Error while registering header template '{}': {}",
-                        header_name, err
+                template
+                    .add_template(template_name, &Self::sanitize_template_text(header_value))
+                    .expect(
+                        format!(
+                            "Error registering header template, tool index {}, header name {}",
+                            tool_index, header_name
+                        )
+                        .as_str(),
                     );
-                }
             }
         }
 
@@ -139,29 +155,39 @@ impl DynamicMCP {
                     Self::INPUT_NAME: object
                 });
 
-                // Render all templates using the pre-initialized template
-                let (rendered_url, rendered_body, rendered_headers) = {
-                    // Render URL
-                    let rendered_url = template.render(Self::URL_TEMPLATE_NAME, &context).unwrap();
+                // Render headers
+                let mut headers = reqwest::header::HeaderMap::new();
+                for (name, template_name) in header_template_names.iter() {
+                    let rendered_value = template.render(template_name, &context).map_err(|err| ErrorData::new(
+                        ErrorCode::PARSE_ERROR,
+                        format!("Error while rendering header template, header name {} : {}", name, err.to_string()),
+                        None,
+                    ))?;
+                    let header_name = reqwest::header::HeaderName::from_str(name).unwrap();
+                    let header_value = reqwest::header::HeaderValue::from_str(&rendered_value).unwrap();
+                    headers.insert(header_name, header_value);
+                }
 
-                    // Render body if exists
-                    let rendered_body = if body_exist {
-                        Some(template.render(Self::BODY_TEMPLATE_NAME, &context).unwrap())
-                    } else {
-                        None
-                    };
+                // Render URL
+                let rendered_url = template.render(Self::URL_TEMPLATE_NAME, &context).map_err(|err| ErrorData::new(
+                    ErrorCode::PARSE_ERROR,
+                    format!("Error while rendering url template: {}", err.to_string()),
+                    None,
+                ))?;
 
-                    // Render headers
-                    let mut headers = reqwest::header::HeaderMap::new();
-                    for (name, template_name) in header_template_names.iter() {
-                        let rendered_value = template.render(template_name, &context).unwrap();
-                        let header_name = reqwest::header::HeaderName::from_str(name).unwrap();
-                        let header_value = reqwest::header::HeaderValue::from_str(&rendered_value).unwrap();
-                        headers.insert(header_name, header_value);
-                    }
-
-                    (rendered_url, rendered_body, headers)
+                // Render body if exists
+                let rendered_body = if body_exist {
+                    let temp = template.render(Self::BODY_TEMPLATE_NAME, &context).map_err(|err| ErrorData::new(
+                            ErrorCode::PARSE_ERROR,
+                            format!("Error while rendering body template: {}", err.to_string()),
+                            None,
+                        ))?;
+                    Some(temp)
+                } else {
+                    None
                 };
+
+                let rendered_headers = headers;
 
                 // Now build the request without holding the template
                 let client = reqwest::Client::new();
@@ -222,7 +248,7 @@ impl DynamicMCP {
                 };
 
                 match response_status {
-                    200..299 => (),
+                    200..=299 => (),
                     _ => return Err(ErrorData::new(
                         ErrorCode::INTERNAL_ERROR,
                         format!("Error while sending a request to {}, got status code : {}, response body : {}", rendered_url, response_status, res_val.to_string()),
@@ -243,22 +269,170 @@ impl DynamicMCP {
         }
     }
 
+    fn general_command_template(
+        tool_index: usize,
+        command_template: String,
+        args_template: Option<Vec<String>>,
+        stdin_template: Option<String>,
+    ) -> impl Fn(Parameters<Value>) -> BoxFuture<'static, Result<CallToolResult, ErrorData>> {
+        // Initialize template once when the function is called
+        let mut template = Template::new();
+        template
+            .add_template(
+                Self::COMMAND_TEMPLATE_NAME,
+                &Self::sanitize_template_text(command_template.as_str()),
+            )
+            .expect(
+                format!(
+                    "Error registering command template, tool index {}: {}",
+                    tool_index, command_template
+                )
+                .as_str(),
+            );
+
+        let stdin_template_exist = if let Some(ref stdin_template) = stdin_template {
+            template
+                .add_template(
+                    Self::STDIN_TEMPLATE_NAME,
+                    &Self::sanitize_template_text(stdin_template),
+                )
+                .expect(
+                    format!(
+                        "Error registering stdin template, tool index {}",
+                        tool_index
+                    )
+                    .as_str(),
+                );
+            true
+        } else {
+            false
+        };
+
+        let args_template = args_template.unwrap_or(vec![]);
+        for (i, args) in args_template.iter().enumerate() {
+            let template_name = Self::command_args_template_name(i);
+            template
+                .add_template(&template_name, &Self::sanitize_template_text(args))
+                .expect(
+                    format!(
+                        "Error registering args template, tool index {}, arg index {}",
+                        tool_index, i
+                    )
+                    .as_str(),
+                );
+        }
+
+        move |Parameters(object): Parameters<Value>| -> BoxFuture<'static, Result<CallToolResult, ErrorData>> {
+            let template = template.clone(); // Clone the pre-initialized template
+            let args_template = args_template.clone();
+
+            Box::pin(async move {
+                let context = json!({
+                    Self::INPUT_NAME: object
+                });
+
+                let rendered_command = template.render(Self::COMMAND_TEMPLATE_NAME, &context).map_err(|err| ErrorData::new(
+                    ErrorCode::PARSE_ERROR,
+                    format!("Error while rendering command template: {}", err.to_string()),
+                    None,
+                ))?;
+
+                let args_template = args_template.iter().enumerate().map(|(i,_)| template.render(&Self::command_args_template_name(i), &context).map_err(|err| ErrorData::new(
+                    ErrorCode::PARSE_ERROR,
+                    format!("Error while rendering args template: {}", err.to_string()),
+                    None,
+                ))).collect::<Result<Vec<String>, ErrorData>>()?;
+
+                let mut command = tokio::process::Command::new(rendered_command);
+
+                if stdin_template_exist {
+                    command.stdin(Stdio::piped());
+                }
+
+                let mut command = command
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .args(&args_template)
+                    .spawn()
+                    .map_err(|err| ErrorData::new(
+                        ErrorCode::INTERNAL_ERROR,
+                        format!("Error while spawning a process: {}", err),
+                        None,
+                    ))?;
+
+                if stdin_template_exist {
+                    let mut stdin = match command.stdin.take() {
+                        Some(stdin) => stdin,
+                        None => return Err(ErrorData::new(
+                            ErrorCode::INTERNAL_ERROR,
+                            "Error while spawning a process: stdin is None".to_string(),
+                            None
+                        ))
+                    };
+
+                    let stdin_data = template.render(Self::STDIN_TEMPLATE_NAME, &context).map_err(|err| ErrorData::new(
+                        ErrorCode::PARSE_ERROR,
+                        format!("Error while rendering stdin template: {}", err.to_string()),
+                        None,
+                    ))?;
+                    stdin.write_all(stdin_data.as_bytes()).await.map_err(|err| ErrorData::new(
+                        ErrorCode::INTERNAL_ERROR,
+                        format!("Error while writing stdin: {}", err),
+                        None
+                    ))?;
+                }
+
+                let output = command.wait_with_output().await.map_err(|err| ErrorData::new(
+                    ErrorCode::INTERNAL_ERROR,
+                    format!("Error while waiting for a process: {}", err),
+                    None,
+                ))?;
+
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+                if !output.status.success() {
+                    return Err(ErrorData::new(
+                        ErrorCode::INTERNAL_ERROR,
+                        format!("Error while executing a command: {}", stderr),
+                        None,
+                    ))
+                }
+
+                if let Ok(json_output) = serde_json::from_str::<Value>(&stdout) {
+                    let content = Content::json::<Value>(json_output).map_err(|err| {
+                        ErrorData::new(
+                            ErrorCode::INTERNAL_ERROR,
+                            format!("Error while parsing content as json: {}", err),
+                            None,
+                        )
+                    })?;
+                    return Ok(CallToolResult::success(vec![content]));
+                }
+
+                Ok(CallToolResult::success(vec![Content::text(stdout)]))
+            })
+
+        }
+    }
+
     pub fn tool_router(tool_data: Vec<ToolData>) -> ToolRouter<DynamicMCP> {
         let mut router = ToolRouter::new();
 
-        for entry in tool_data.iter() {
-            match entry.tool_type {
+        for (i, entry) in tool_data.iter().enumerate() {
+            let (function_tool, tool_description) = match entry.tool_type {
                 ToolType::HTTP => {
                     let Some(ref http_metadata) = entry.http_metadata else {
                         continue;
                     };
                     let method = http_metadata.method.clone();
                     let url = http_metadata.url.clone();
-                    let body_template = http_metadata.body_template.clone();
+                    let body_template = http_metadata.body.clone();
                     let headers = http_metadata.headers.clone();
 
                     let closure =
-                        Self::general_http_method_template(method, url, body_template, headers);
+                        Self::general_http_method_template(i, method, url, body_template, headers);
                     let function_tool = DynamicMCPClosure::new(closure);
 
                     let tool_description = Self::generate_tool_description(
@@ -269,9 +443,38 @@ impl DynamicMCP {
                         entry.tool_annotations.clone(),
                     );
 
-                    router = router.with_route(ToolRoute::new(tool_description, function_tool));
+                    (function_tool, tool_description)
+                }
+
+                ToolType::COMMAND => {
+                    let Some(ref command_metadata) = entry.command_metadata else {
+                        continue;
+                    };
+                    let command_template = command_metadata.command.clone();
+                    let args_template = command_metadata.args.clone();
+                    let stdin_template = command_metadata.stdin.clone();
+
+                    let closure = Self::general_command_template(
+                        i,
+                        command_template,
+                        args_template,
+                        stdin_template,
+                    );
+                    let function_tool = DynamicMCPClosure::new(closure);
+
+                    let tool_description = Self::generate_tool_description(
+                        entry.description.clone(),
+                        entry.name.clone(),
+                        command_metadata.input_schema.clone(),
+                        command_metadata.output_schema.clone(),
+                        entry.tool_annotations.clone(),
+                    );
+
+                    (function_tool, tool_description)
                 }
             };
+
+            router = router.with_route(ToolRoute::new(tool_description, function_tool));
         }
 
         router

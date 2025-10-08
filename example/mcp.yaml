@@ -44,7 +44,7 @@ tools:
           wind_speed:
             type: number
             description: Wind speed of the forecast
-      body_template: |
+      body: |
         {
           "time": "{ input.time }",
           "weather_forecast": {
@@ -52,3 +52,32 @@ tools:
             "wind_speed": { input.wind_speed }
           }
         }
+  - name: weather_forecast_command
+    description: "This command will be called after weather forecast is fetched. You need to call this command multiple times based on hourly data"
+    tool_type: COMMAND
+    command_metadata:
+      command: "bash"
+      args:
+        - "./example/input.sh"
+        - "{ input.time }"
+        - "{ input.temperature }"
+      stdin: "Longitude : { input.longitude }, Latitude : { input.latitude }"
+      input_schema:
+        type: object
+        properties:
+          time:
+            type: string
+            description: Time of the forecast. Format is YYYY-MM-DD HH:MM:SS
+          temperature:
+            type: number
+            description: Temperature of the forecast
+          longitude:
+            type: number
+            description: Longitude of the location
+          latitude:
+            type: number
+            description: Latitude of the location
+
+
+
+

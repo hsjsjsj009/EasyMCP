@@ -4,6 +4,7 @@ use std::collections::HashMap;
 #[derive(serde::Deserialize, Debug, Clone)]
 pub enum ToolType {
     HTTP,
+    COMMAND,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -24,8 +25,17 @@ pub enum TransportType {
 pub struct HttpMetadata {
     pub url: String,
     pub method: HttpMethod,
-    pub body_template: Option<String>,
+    pub body: Option<String>,
     pub headers: Option<HashMap<String, String>>,
+    pub input_schema: JsonObject,
+    pub output_schema: Option<JsonObject>,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct CommandMetadata {
+    pub command: String,
+    pub args: Option<Vec<String>>,
+    pub stdin: Option<String>,
     pub input_schema: JsonObject,
     pub output_schema: Option<JsonObject>,
 }
@@ -36,6 +46,7 @@ pub struct ToolData {
     pub description: String,
     pub tool_type: ToolType,
     pub http_metadata: Option<HttpMetadata>,
+    pub command_metadata: Option<CommandMetadata>,
     pub tool_annotations: Option<ToolAnnotations>,
 }
 
