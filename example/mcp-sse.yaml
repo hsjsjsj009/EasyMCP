@@ -1,0 +1,88 @@
+instruction: "This tools are used to get weather forecast."
+server_info:
+  name: "Weather Forecast"
+  version: "1.0.0"
+transport_config:
+  transport_type: SSE
+  sse_config:
+    address: "127.0.0.1:8080"
+    sse_path: "/sse"
+    post_path: "/message"
+    keep_alive_duration: "5s"
+tools:
+  - name: weather_forecast
+    description: "Get weather forecast"
+    tool_type: HTTP
+    http_metadata:
+      url: https://api.open-meteo.com/v1/forecast?latitude={input.latitude}&longitude={input.longitude}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m&start_date={input.start_date}&end_date={input.end_date}
+      method: GET
+      input_schema:
+        type: object
+        properties:
+          latitude:
+            type: number
+            description: Latitude of the location
+          longitude:
+            type: number
+            description: Longitude of the location
+          start_date:
+            type: string
+            description: Start date of the forecast. Format is YYYY-MM-DD
+          end_date:
+            type: string
+            description: End date of the forecast. Format is YYYY-MM-DD
+  - name: weather_forecast_webhook
+    description: "This webhook will be called after weather forecast is fetched. You need to call this webhook multiple times based on hourly data"
+    tool_type: HTTP
+    http_metadata:
+      url: https://webhook.site/c62bc298-6ab1-4d16-b9b9-c2295a7bfb1a
+      method: POST
+      input_schema:
+        type: object
+        properties:
+          time:
+            type: string
+            description: Time of the forecast. Format is YYYY-MM-DD HH:MM:SS
+          temperature:
+            type: number
+            description: Temperature of the forecast
+          wind_speed:
+            type: number
+            description: Wind speed of the forecast
+      body: |
+        {
+          "time": "{ input.time }",
+          "weather_forecast": {
+            "temperature": { input.temperature },
+            "wind_speed": { input.wind_speed }
+          }
+        }
+  - name: weather_forecast_command
+    description: "This command will be called after weather forecast is fetched. You need to call this command multiple times based on hourly data"
+    tool_type: COMMAND
+    command_metadata:
+      command: "bash"
+      args:
+        - "./example/input.sh"
+        - "{ input.time }"
+        - "{ input.temperature }"
+      stdin: "Longitude : { input.longitude }, Latitude : { input.latitude }"
+      input_schema:
+        type: object
+        properties:
+          time:
+            type: string
+            description: Time of the forecast. Format is YYYY-MM-DD HH:MM:SS
+          temperature:
+            type: number
+            description: Temperature of the forecast
+          longitude:
+            type: number
+            description: Longitude of the location
+          latitude:
+            type: number
+            description: Latitude of the location
+
+
+
+

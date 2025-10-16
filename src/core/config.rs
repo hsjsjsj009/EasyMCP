@@ -51,14 +51,24 @@ pub struct ToolData {
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
+pub struct SseConfig {
+    pub address: String,
+    pub sse_path: Option<String>,
+    pub post_path: Option<String>,
+    pub keep_alive_duration: Option<String>,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
 pub struct TransportConfig {
     pub transport_type: TransportType,
+    pub sse_config: Option<SseConfig>,
 }
 
 impl Default for TransportConfig {
     fn default() -> Self {
         TransportConfig {
             transport_type: TransportType::STDIO,
+            sse_config: None,
         }
     }
 }
