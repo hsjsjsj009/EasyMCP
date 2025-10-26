@@ -27,6 +27,18 @@ impl<'a> Clone for Template<'a> {
 }
 
 impl<'a> Template<'a> {
+    /// Default formatter that converts JSON values to their string representation.
+    ///
+    /// This formatter serializes the JSON value to a string and removes
+    /// surrounding quotes for clean output.
+    ///
+    /// # Arguments
+    /// * `value` - The JSON value to format
+    /// * `output` - The output string to write the formatted result to
+    ///
+    /// # Returns
+    /// * `Ok(())` if formatting was successful
+    /// * `Err(Error)` if JSON serialization failed
     fn default_formatter(value: &Value, output: &mut String) -> Result<(), Error> {
         let object_string = serde_json::to_string(value)?;
         let object_string = object_string.trim_end_matches('"').trim_start_matches('"');
@@ -34,6 +46,20 @@ impl<'a> Template<'a> {
         Ok(())
     }
 
+    /// URL-encodes a JSON value for safe use in URLs and query parameters.
+    ///
+    /// This formatter converts the JSON value to its string representation,
+    /// removes surrounding quotes, and then URL-encodes the result using
+    /// the `urlencoding` crate. This is useful for including data in HTTP
+    /// requests that might contain special characters.
+    ///
+    /// # Arguments
+    /// * `value` - The JSON value to encode
+    /// * `output` - The output string to write the encoded result to
+    ///
+    /// # Returns
+    /// * `Ok(())` if encoding was successful
+    /// * `Err(Error)` if JSON serialization failed
     fn url_encode_formatter(value: &Value, output: &mut String) -> Result<(), Error> {
         let object_string = serde_json::to_string(value)?;
         let encode = urlencoding::encode(object_string.as_str());

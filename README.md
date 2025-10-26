@@ -223,6 +223,28 @@ The configuration supports template variables using the `{ input.field }` syntax
 
 We use TinyTemplate for template rendering engine. It is a simple and fast template rendering engine. For more details, please refer to [TinyTemplate Documentation](https://docs.rs/tinytemplate/latest/tinytemplate/).
 
+### Custom Template Formatters
+
+In addition to the standard template variables, EasyMCP provides custom formatters for common use cases:
+
+#### url_encode Formatter
+
+The `url_encode` formatter URL-encodes JSON values, which is useful when you need to include data in URLs or query parameters that might contain special characters.
+
+**Usage:**
+```yaml
+http_metadata:
+  url: "https://api.example.com/search?q={ input.query | url_encode }"
+  method: GET
+```
+
+**Example:**
+- Input: `{"query": "hello world & more"}`
+- Template: `{ input.query | url_encode }`
+- Output: `hello%20world%20%26%20more`
+
+The formatter works by converting the JSON value to a string and then URL-encoding it using the `urlencoding` crate. This ensures that special characters like spaces, ampersands, and other URL-unsafe characters are properly encoded for use in HTTP requests.
+
 ### Input/Output Schemas
 
 Both HTTP and COMMAND tools support JSON Schema for input and output validation:
@@ -292,3 +314,16 @@ The server provides detailed error messages for:
 - Validate and sanitize all inputs
 - Use HTTPS for HTTP tools when possible
 - Consider authentication for SSE servers in production
+
+### Testing MCP
+
+You can test the MCP server using model context protocol inspector. Below is the example of the command
+```bash
+# SSE
+npx @modelcontextprotocol/inspector http://127.0.0.1:8080
+
+# STDIO
+npx @modelcontextprotocol/inspector <path-to-binary> --file_path <path-to-config-file>
+```
+
+Before using `npx`, you need to download and install `nodejs` distribution.
