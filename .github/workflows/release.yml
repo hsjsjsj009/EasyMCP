@@ -1,0 +1,136 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build Release Binaries (${{ matrix.os }}-${{ matrix.target }})
+    strategy:
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: linux-x64
+            cross: false
+          # Linux ARM64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            name: linux-arm64
+            cross: true
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: windows-x64
+            cross: false
+            ext: .exe
+          # macOS x86_64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            name: macos-x64
+            cross: false
+          # macOS ARM64 (Apple Silicon)
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: macos-arm64
+            cross: false
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Cache dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ matrix.target }}
+
+    - name: Install cross-compilation tools (Linux ARM64)
+      if: matrix.cross == true && startsWith(matrix.os, 'ubuntu')
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu
+
+    - name: Build binary
+      run: |
+        cargo build --release --target ${{ matrix.target }} --verbose
+
+    - name: Create artifact directory
+      run: mkdir artifacts
+      shell: bash
+
+    - name: Copy binary (Unix)
+      if: matrix.os != 'windows-latest'
+      run: |
+        cp target/${{ matrix.target }}/release/easymcp artifacts/easymcp-${{ matrix.name }}
+
+    - name: Copy binary (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        cp target/${{ matrix.target }}/release/easymcp.exe artifacts/easymcp-${{ matrix.name }}.exe
+      shell: bash
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: easymcp-${{ matrix.name }}
+        path: artifacts/
+        retention-days: 30
+
+  create-release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: List artifacts
+      run: find artifacts -type f
+
+    - name: Prepare release files
+      run: |
+        mkdir release-artifacts
+        for dir in artifacts/easymcp-*; do
+          if [ -d "$dir" ]; then
+            artifact_name=$(basename "$dir")
+            echo "Processing $artifact_name"
+            if [[ "$artifact_name" == *"windows"* ]]; then
+              # For Windows, expect .exe file
+              cp "$dir"/*.exe "release-artifacts/easymcp-$artifact_name.exe" 2>/dev/null || echo "No .exe found for $artifact_name"
+            else
+              # For Unix-like systems
+              cp "$dir"/easymcp* "release-artifacts/easymcp-$artifact_name" 2>/dev/null || echo "No binary found for $artifact_name"
+            fi
+          fi
+        done
+
+    - name: List release files
+      run: ls -la release-artifacts/
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release-artifacts/*
+        generate_release_notes: true
+        draft: false
+        prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
