@@ -43,18 +43,3 @@ check: ## Check compilation without building
 
 clean: ## Clean build artifacts
 	cargo clean
-
-# Cross-compilation setup
-install-linux: ## Install cross-compilation tools for Linux ARM64
-	@echo "Installing cross-compilation tools for Linux ARM64..."
-	sudo apt-get update
-	sudo apt-get install -y gcc-aarch64-linux-gnu
-
-install-windows: ## Install cross-compilation tools for Windows (requires LLVM)
-	@echo "Installing cross-compilation tools for Windows..."
-	sudo apt-get update
-	sudo apt-get install -y gcc-mingw-w64
-
-install-macos: ## Install cross-compilation tools for macOS (requires osxcross)
-	@echo "For macOS cross-compilation, consider using osxcross or GitHub Actions"
-	@echo "https://github.com/tpoechtrager/osxcross"

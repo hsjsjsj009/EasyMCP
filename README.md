@@ -111,15 +111,6 @@ For development and testing, you can also build for specific targets:
 ```bash
 # Build for your current platform
 cargo build --release
-
-# Cross-compile for Linux ARM64
-cargo build --release --target aarch64-unknown-linux-gnu
-
-# Cross-compile for Windows
-cargo build --release --target x86_64-pc-windows-msvc
-
-# Cross-compile for macOS ARM64
-cargo build --release --target aarch64-apple-darwin
 ```
 
 Alternatively, you can use the provided Makefile for common development tasks:
