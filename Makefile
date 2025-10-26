@@ -13,18 +13,6 @@ help: ## Show this help message
 	@echo "  make fmt         - Format code"
 	@echo "  make check       - Check compilation without building"
 	@echo "  make clean       - Clean build artifacts"
-	@echo ""
-	@echo "Cross-compilation commands:"
-	@echo "  make install-linux    - Install cross-compilation tools for Linux"
-	@echo "  make install-windows - Install cross-compilation tools for Windows"
-	@echo "  make install-macos   - Install cross-compilation tools for macOS"
-	@echo ""
-	@echo "Build for specific platforms:"
-	@echo "  cargo build --release --target x86_64-unknown-linux-gnu"
-	@echo "  cargo build --release --target aarch64-unknown-linux-gnu"
-	@echo "  cargo build --release --target x86_64-pc-windows-msvc"
-	@echo "  cargo build --release --target x86_64-apple-darwin"
-	@echo "  cargo build --release --target aarch64-apple-darwin"
 
 build: ## Build for current platform
 	cargo build --release
