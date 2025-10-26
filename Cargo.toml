@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.45", features = ["derive"] }
 futures-core = "0.3.31"
-reqwest = { version = "0.12.23", features = ["json"] }
+reqwest = { version = "0.12.23", default-features = false, features = ["json", "rustls-tls"] }
 rmcp = { version = "0.5.0", features = [
     "server",
     "macros",
@@ -34,3 +34,9 @@ duration-string = "0.5.3"
 tokio-util = "0.7.16"
 axum = "0.8.6"
 tracing = "0.1.41"
+
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+
+[target.x86_64-unknown-linux-musl]
+linker = "x86_64-linux-musl-gcc"
