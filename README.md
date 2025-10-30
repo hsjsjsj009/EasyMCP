@@ -304,7 +304,7 @@ The server provides detailed error messages for:
 - Be cautious with command execution tools
 - Validate and sanitize all inputs
 - Use HTTPS for HTTP tools when possible
-- Consider authentication for SSE servers in production
+- In current implementation, we don't implement authentication mechanism yet. Stay tuned for the update
 
 ### Testing MCP
 
